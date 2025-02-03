@@ -1,10 +1,10 @@
 library(spOccupancy)
-setwd("RStudio/spOccupancy_NSW_20241219/")
+setwd(".")
 
 
 
 # Load the data -----------------------------------------------------------
-load("input/data.sfMsPGOcc.RData")
+load("models/data.sfMsPGOcc.RData")
 str(data.sfMsPGOcc)
 # Species codes
 sp.names = rownames(data.sfMsPGOcc$y)

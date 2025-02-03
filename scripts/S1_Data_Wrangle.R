@@ -8,12 +8,12 @@ library(terra)
 
 # Setting Project Environment ---------------------------------------------
 # Set the path to the root 'data' directory
-setwd("D:/")
-root_path <- "RStudio/spOccupancy_NSW_20241219/data"
+# setwd("D:/")
+occ_path <- "input/occ/"
 
 # Fetch species occurrence records ------------------------------------------------------------
 # List all files that start with 'Atlas_records' in the 'data/BioNet*/' folder structure
-file_list <- list.files(path = root_path, 
+file_list <- list.files(path = occ_path, 
                         pattern = "^Atlas_records", 
                         recursive = TRUE, 
                         full.names = TRUE)
@@ -129,6 +129,13 @@ for (site in plot.codes) {
         site_index <- which(dimnames(y)[[2]] == site)
         y[sp_index, site_index, rep] <- ifelse(was_observed, 1, 0)
       }
+    } else {
+      # If the plotID was not sampled during this replicate, set all species occurrences to NA
+      for (species in sp.codes) {
+        sp_index <- which(dimnames(y)[[1]] == species)
+        site_index <- which(dimnames(y)[[2]] == site)
+        y[sp_index, site_index, rep] <- NA
+      }
     }
   }
 }
@@ -156,7 +163,7 @@ str(month.df)
 
 # Detection covariates 1: survey effort
 # Get unique plot IDs and years
-replicate <- sort(unique(month.df$replicate))         # Years (columns)
+replicate <- 1:K # Years (columns)
 
 # Initialize deployment matrix with NAs
 effort.matrix <- matrix(NA, nrow = J, ncol = K, 
@@ -165,14 +172,12 @@ effort.matrix <- matrix(NA, nrow = J, ncol = K,
 # Fill the matrix
 for (j in 1:J) {
   for (k in 1:K) {
-    # Get deployment length for site j and year k
+    # Get effort for plot j and replicate k
     val <- month.df %>%
-      filter(plotID == plot.codes[j], replicate == replicate[k]) %>%
+      filter(plotID == plot.codes[j], replicate == k) %>%  # Directly use k, not replicate[k]
       pull(effort.months)
     
-    # Assign value if data exists, otherwise assign NA
     effort.matrix[j, k] <- ifelse(length(val) > 0, val, NA)
-    
   }
 }
 
@@ -184,6 +189,19 @@ str(effort.matrix)
 
 # det.covs = list(effort = effort.matrix)
 
+# Check if the NA values aligned between y and det
+na_effort <- is.na(effort.matrix)
+na_y <- is.na(y[1,,]) #Here I just use the first species, but it should be identical for all species. 
+
+identical(na_effort, na_y)
+# Identify positions where the NA structure differs
+diff_positions <- which(na_effort != na_y, arr.ind = TRUE)
+
+# Print the differing positions
+print(diff_positions)
+
+str(na_effort)
+str(na_y)
 
 # Format site coordinates -------------------------------------------------
 coords <- df %>%
@@ -207,12 +225,12 @@ str(coords)
 
 # Format beta/occurrence covariates --------------------------------------------------
 # Recall the beta covariates and stacked into single raster
-bio = rast("RStudio/spOccupancy_NSW_20241219/input/CHELSA_bio_2011-2040_gfdl-esm4_ssp126_V.2.1_EPSG32755.tif")
+bio = rast("input/beta/CHELSA_bio_2011-2040_gfdl-esm4_ssp126_V.2.1_EPSG32755.tif")
 bio = bio[[c("bio5", "bio12")]] #we will only use bio5 and bio 12 based on pearson correlation analysis in S0
 
-roads_density = rast("RStudio/spOccupancy_NSW_20241219/input/env_roadDensity_EPSG32755.tif")
-pd = rast("RStudio/spOccupancy_NSW_20241219/input/aus_pd_2010-2020_1km_UNadj_EPSG32755.tif")
-der = rast("RStudio/spOccupancy_NSW_20241219/input/env_der_EPSG32755.tif")
+roads_density = rast("input/beta/env_roadDensity_EPSG32755.tif")
+pd = rast("input/beta/aus_pd_2010-2020_1km_UNadj_EPSG32755.tif")
+der = rast("input/beta/env_der_EPSG32755.tif")
 
 env_stack <- c(bio,roads_density, pd, der)
 
@@ -265,7 +283,7 @@ out.msom <- spMsPGOcc(occ.formula = ~ scale(bio5) + I(scale(bio5)^2) + scale(bio
 summary(out.msom, level = 'community')
 
 
-save(data.sfMsPGOcc, file = "RStudio/spOccupancy_NSW_20241219/input/data.sfMsPGOcc.RData")
+save(data.sfMsPGOcc, file = "models/data.sfMsPGOcc.RData")
 
 
 

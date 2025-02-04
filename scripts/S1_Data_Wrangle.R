@@ -9,7 +9,7 @@ library(terra)
 # Setting Project Environment ---------------------------------------------
 # Set the path to the root 'data' directory
 # setwd("D:/")
-occ_path <- "input/occ/"
+occ_path <- "data/occ/"
 
 # Fetch species occurrence records ------------------------------------------------------------
 # List all files that start with 'Atlas_records' in the 'data/BioNet*/' folder structure
@@ -225,12 +225,12 @@ str(coords)
 
 # Format beta/occurrence covariates --------------------------------------------------
 # Recall the beta covariates and stacked into single raster
-bio = rast("input/beta/CHELSA_bio_2011-2040_gfdl-esm4_ssp126_V.2.1_EPSG32755.tif")
+bio = rast("data/beta/CHELSA_bio_2011-2040_gfdl-esm4_ssp126_V.2.1_EPSG32755.tif")
 bio = bio[[c("bio5", "bio12")]] #we will only use bio5 and bio 12 based on pearson correlation analysis in S0
 
-roads_density = rast("input/beta/env_roadDensity_EPSG32755.tif")
-pd = rast("input/beta/aus_pd_2010-2020_1km_UNadj_EPSG32755.tif")
-der = rast("input/beta/env_der_EPSG32755.tif")
+roads_density = rast("data/beta/env_roadDensity_EPSG32755.tif")
+pd = rast("data/beta/aus_pd_2010-2020_1km_UNadj_EPSG32755.tif")
+der = rast("data/beta/env_der_EPSG32755.tif")
 
 env_stack <- c(bio,roads_density, pd, der)
 
@@ -268,6 +268,8 @@ data.sfMsPGOcc <- list(y = y,
                   coords = coords)
 str(data.sfMsPGOcc)
 
+save(data.sfMsPGOcc, file = "input/sfMsPGOcc_2011-2040_gfdl-esm4_ssp126.RData")
+
 # Test run
 out.msom <- spMsPGOcc(occ.formula = ~ scale(bio5) + I(scale(bio5)^2) + scale(bio12) + I(scale(bio12)^2) + # Quadratic for bio12
                         scale(roadLength) +              # Linear for road density
@@ -280,10 +282,10 @@ out.msom <- spMsPGOcc(occ.formula = ~ scale(bio5) + I(scale(bio5)^2) + scale(bio
                       cov.model = 'exponential', 
                       NNGP = TRUE, 
                       verbose = FALSE) 
+
 summary(out.msom, level = 'community')
 
 
-save(data.sfMsPGOcc, file = "models/data.sfMsPGOcc.RData")
 
 
 

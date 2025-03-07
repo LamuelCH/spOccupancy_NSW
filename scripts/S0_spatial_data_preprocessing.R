@@ -12,18 +12,33 @@ library(tidyr)
 library(terra)
 library(dplyr)
 
+options(mc.core = parallel::detectCores())
+
 # Define study area
-aoi <- ext(-100000, 1225969, 5500000, 7400000)  # Define the extent
+aoi_3577 = ext(684147.3, 2225320.5, -4597511.6, -2556437.4)
+aoi_32755 <- ext(-100000, 1225969, 5500000, 7400000)
+# aoi_polygon <- st_as_sfc(st_bbox(c(xmin = -100000, xmax = 1225969, ymin = 5500000, ymax = 7400000), crs = 32755))
+
+# Step 3: Transform the polygon to EPSG:3577
+# aoi_polygon_3577 <- st_transform(aoi_polygon, crs = 3577)
+
+# Step 4: Extract the transformed extent
+# aoi_3577 <- st_bbox(aoi_polygon_3577)
+# Print the transformed extent
+# print(aoi_3577)
+
 
 # Read the species IUCN range shapefile
-range = vect("spatial_data/Range data/Dasyurus Maculatus/data_0.shp")
-range = project(range, "EPSG:32755")   # reproject to Easting and Northing
-range = crop(range,aoi)
+# range = vect("spatial_data/Range data/Dasyurus Maculatus/data_0.shp")
+# range = project(range, "EPSG:32755")   # reproject to Easting and Northing
+# range = crop(range,aoi)
 
 # Create a raster mask with 1 km resolution
 # Generate an empty raster with the defined extent and resolution
-raster = rast(extent = aoi, resolution = 1000, crs = "EPSG:32755")
-mask = rasterize(range, raster, field = 1)  # Field = 1 assigns a value of 1 to the rasterized area
+raster_3577 = rast(extent = aoi_3577, resolution = 1000, crs = "EPSG:3577")
+raster_32755 = rast(extent = aoi_32755, resolution = 1000, crs = "EPSG:32755")
+
+# mask = rasterize(range, raster, field = 1)  # Field = 1 assigns a value of 1 to the rasterized area
 
 # Save the raster mask (optional)
 # writeRaster(mask, "RStudio/spOccupancy_NSW_20241219/input/mask_1km.tif", overwrite = TRUE)
@@ -36,8 +51,8 @@ mask = rasterize(range, raster, field = 1)  # Field = 1 assigns a value of 1 to 
 # Raster processing -------------------------------------------------------
 # CHELSA bioclimatic data -------------------------------------------------
 ## Define the directory containing the CHELSA rasters
-input_dir <- "spatial_data/CHELSA/climatologies/2011-2040/GFDL-ESM4/ssp126/bio/"
-output_dir <- "RStudio/spOccupancy_NSW_20241219/input/"
+input_dir <- "data/beta/CHELSA/climatologies/2011-2040/GFDL-ESM4/ssp126/bio/"
+output_dir <- "input/"
 
 # List all raster files in the directory
 bio <- list.files(input_dir, pattern = "\\.tif$", full.names = TRUE)
@@ -51,17 +66,17 @@ bio = rast(bio)
 names(bio) <- layer_names
 
 # Reproject the raster using bilinear method
-bio <- terra::project(bio, raster, method = "bilinear")
+bio <- terra::project(bio, raster_3577, method = "bilinear")
 
 # Save the stacked raster to a file
-output_file = file.path(output_dir, "CHELSA_bio_2011-2040_gfdl-esm4_ssp126_V.2.1_EPSG32755.tif")
+output_file = file.path(output_dir, "CHELSA_bio_2011-2040_gfdl-esm4_ssp126_V.2.1_EPSG3577.tif")
 writeRaster(bio,output_file, overwrite = TRUE)
 
 
 # pr ----------------------------------------------------------------------
 ## Define the directory containing the CHELSA rasters
 input_dir <- "spatial_data/CHELSA/climatologies/2011-2040/GFDL-ESM4/ssp126/pr/"
-output_dir <- "RStudio/spOccupancy_NSW_20241219/input/"
+output_dir <- "RStudio/spOccupancy_NSW/data/beta/"
 
 # List all raster files in the directory
 pr <- list.files(input_dir, pattern = "\\.tif$", full.names = TRUE)
@@ -78,7 +93,7 @@ names(pr) <- "pr_mean"
 pr <- terra::project(pr, raster, method = "bilinear")
 
 # Save the stacked raster to a file
-output_file = file.path(output_dir, "CHELSA_gfdl-esm4_r1i1p1f1_w5e5_ssp126_pr_mean_2011_2040_norm_EPSG32755.tif")
+output_file = file.path(output_dir, "CHELSA_gfdl-esm4_r1i1p1f1_w5e5_ssp126_pr_mean_2011_2040_norm_EPSG3577.tif")
 writeRaster(pr,output_file, overwrite = TRUE)
 
 
@@ -245,27 +260,21 @@ plot(foliage_1km)
 writeRaster(x = foliage_1km, filename = "data/env_foliage_1km.tif", overwrite = TRUE)
 ###########################################################################
 # DEPTH OF REGOLITH ####
-der = rast("spatial_data/Soil and Landscape Grid National Soil Attribute Maps/data/DER_000_999_EV_N_P_AU_NAT_C_20150601.tif")
-
-# ("data/RawData.RAW/Soil and Landscape Grid National Soil Attribute Maps/data/DER_000_999_EV_N_P_AU_NAT_C_20150601.tif")
-
-der <- terra::project(der, mask, method = "bilinear")
+der = rast("data/beta/Soil and Landscape Grid National Soil Attribute Maps/data/DER_000_999_EV_N_P_AU_NAT_C_20150601.tif")
+der <- terra::project(der, raster_3577, method = "bilinear")
 
 names(der) = "der"
 
-writeRaster(der, filename = "RStudio/spOccupancy_NSW_20241219/input/env_der_EPSG32755.tif", overwrite = TRUE)
+writeRaster(der, filename = "input/env_der_EPSG3577.tif", overwrite = TRUE)
 ###########################################################################
 # ROAD DENSITY####
 #Road Density
-roads <- vect("spatial_data/road/2024_12_NationalRoads/NationalRoads2024_12.shp")
-roads = crop(roads, raster) 
-
-# Seperate high and low speed road
-# roads_low = roads[roads$speed < 80 | is.na(roads$speed),]
-# roads_high = roads[roads$speed >= 80,]
+roads <- vect("data/beta/road/2024_12_NationalRoads/NationalRoads2024_12.shp") 
+roads = project(roads, y = "EPSG:3577")
 
 # Convert the roads to raster with 1km resolution
-roads <- terra::rasterize(roads,mask, field = "Shape_Leng", fun = sum)
+roads <- terra::rasterize(roads,raster_3577, field = "Shape_Leng", fun = sum)
+# roads = crop(roads, raster) 
 
 # Calculate the total length of road within a 10 km moving window for each cell
 roads_density <- terra::focal(roads, 
@@ -284,11 +293,11 @@ plot(roads_density)
 
 names(roads_density) = "roadLength"
 
-writeRaster(x = roads_density,filename = "RStudio/spOccupancy_NSW_20241219/input/env_roadDensity_EPSG32755.tif", overwrite = TRUE)
+writeRaster(x = roads_density,filename = "input/env_roadDensity_EPSG3577.tif", overwrite = TRUE)
 ###########################################################################
 # Population Density ------------------------------------------------------
-input_dir <- "spatial_data/pd"
-output_dir <- "RStudio/spOccupancy_NSW_20241219/input/"
+input_dir <- "data/beta/pd/2010-2020/"
+output_dir <- "input/"
 
 # Create the output directory if it doesn't exist
 if (!dir.exists(output_dir)) {
@@ -296,7 +305,7 @@ if (!dir.exists(output_dir)) {
 }
 
 # Define years to process
-years <- 2011:2021
+years <- 2010:2020
 
 # Loop through each year and process the corresponding file
 for (year in years) {
@@ -309,10 +318,10 @@ for (year in years) {
     pd <- rast(input_file)
     
     # Reproject the raster using bilinear method
-    pd_reprojected <- terra::project(pd, raster, method = "bilinear")
+    pd_reprojected <- terra::project(pd, raster_3577, method = "bilinear")
     
     # Save the reprojected raster to the output directory
-    output_file <- file.path(output_dir, paste0("aus_pd_", year, "_1km_UNadj_reprojected.tif"))
+    output_file <- file.path(output_dir, paste0("aus_pd_", year, "_1km_UNadj_EPSG3577.tif"))
     writeRaster(pd_reprojected, output_file, overwrite = TRUE)
     
     # Log the progress
@@ -333,8 +342,8 @@ cat("Processing complete!")
 # Human disturbance index -------------------------------------------------
 ## Define the directory containing the CHELSA rasters
 ## Define the directory containing the CHELSA rasters
-input_dir <- "spatial_data/pd/2010-2020/"
-output_dir <- "RStudio/spOccupancy_NSW_20241219/input/"
+input_dir <- "data/beta/pd/2010-2020/"
+output_dir <- "input/"
 
 # List all raster files in the directory
 pd <- list.files(input_dir, pattern = "\\.tif$", full.names = TRUE)
@@ -344,7 +353,7 @@ pd = mean(pd)
 
 
 # Reproject the raster using bilinear method
-pd <- terra::project(pd, raster, method = "bilinear")
+pd <- terra::project(pd, raster_3577, method = "bilinear")
 
 # Calculate the total density of population within a 10 km moving window for each cell
 pd_smooth <- terra::focal(pd, w = 9, fun = sum, na.rm = TRUE)
@@ -355,7 +364,7 @@ names(pd_smooth) <- "pd_mean"
 
 
 # Save the stacked raster to a file
-output_file = file.path(output_dir, "aus_pd_2010-2020_1km_UNadj_EPSG32755.tif")
+output_file = file.path(output_dir, "aus_pd_2010-2020_1km_UNadj_EPSG3577.tif")
 writeRaster(pd_smooth,output_file, overwrite = TRUE)
 
 

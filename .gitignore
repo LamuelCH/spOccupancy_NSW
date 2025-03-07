@@ -1,5 +1,8 @@
-#input folder
-data/beta/
+#Raw Data folder
+data/
+
+#Model folder
+models/
 
 # History files
 .Rhistory
@@ -11,6 +14,11 @@ data/beta/
 
 # User-specific files
 .Ruserdata
+.tif
+
+#log files
+.err
+.out
 
 # Example code in package build process
 *-Ex.R

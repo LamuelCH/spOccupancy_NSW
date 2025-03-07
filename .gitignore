@@ -14,11 +14,11 @@ models/
 
 # User-specific files
 .Ruserdata
-.tif
+*.tif
 
 #log files
-.err
-.out
+*.err
+*.out
 
 # Example code in package build process
 *-Ex.R

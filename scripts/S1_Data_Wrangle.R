@@ -4,11 +4,13 @@ library(ggmap)
 library(spOccupancy)
 library(terra)
 library(sf)
+
 # Setting Project Environment ---------------------------------------------
 # Set the path to the root 'data' directory
-# setwd("D:/")
+# setwd(".")
 
-options(mc.cores = parallel::detectCores()-1)
+# Enable parallel processing whenever possible
+options(mc.cores = parallel::detectCores())
 
 # VICTORIA VBA DATA WRANGLING ------------------------------------------------------
   # Specify folder path 
@@ -82,34 +84,6 @@ options(mc.cores = parallel::detectCores()-1)
     # View the summary
     print(summary_genus_VBA, n=32)
 
-# Remove rows where Longitude or Latitude are NA
-# df_VBA <- df_VBA %>%
-  # filter(!is.na(Longitude.GDA94) & !is.na(Latitude.GDA94))
-
-# Convert df_VBA to an sf object with GDA94 (EPSG: 4283)
-# VBA_sf <- df_VBA %>%
-  # st_as_sf(coords = c("Longitude.GDA94", "Latitude.GDA94"), crs = 4283)  
-
-# Transform coordinates to Australian Albers Equal Area (EPSG: 3577)
-# VBA_sf <- st_transform(VBA_sf, crs = 3577)
-
-# Create the 'plot' column by assigning a unique ID to each unique Easting-Northing combination
-# df_VBA <- df_VBA %>%
-  # group_by(Easting, Northing) %>%
-  # mutate(plot = cur_group_id()) %>%
-  # ungroup()
-
-
-
-  # rename(
-    # genus = genus,      # Rename CommonName to Species
-    # plot = plot,
-    # x = Easting, # Rename Latitude_GDA94 to Latitude
-    # y = Northing # Rename Longitude_GDA94 to Longitude
-  # ) %>% 
-  # na.omit()
-
-
 # NSW BIONET DATA WRANGLING -----------------------------------------------
   # Specify folder path 
   path_BioNet <- "data/occ/BioNet"
@@ -180,19 +154,20 @@ options(mc.cores = parallel::detectCores()-1)
       arrange(desc(Observations))
   
     # View the summary
-    print(summary_genus_BioNet, n=30)
+    print(summary_genus_BioNet, n=40)
 
     
     
 # COMBINED OPERATION VIC AND NSW DATA ------------------------------------------------
   df = bind_rows(df_VBA, df_BioNet)
-
+    
+    
  # Visualize on map
-    register_stadiamaps("1794b86f-c7ad-4aab-82b4-23ae3e2f039d", write = TRUE)
-    qmplot(Longitude_GDA94, Latitude_GDA94, 
-                      data = df,
-                      zoom = 8, maptype = "stamen_terrain",
-                      darken = c(0.5, "black"), color = Genus)
+    # register_stadiamaps("1794b86f-c7ad-4aab-82b4-23ae3e2f039d", write = TRUE)
+    # qmplot(Longitude_GDA94, Latitude_GDA94, 
+                      # data = df,
+                      # zoom = 8, maptype = "stamen_terrain",
+                      # darken = c(0.5, "black"), color = Genus)
   
     # Convert PCS to EPSG:3577 
     df <- df %>%  
@@ -206,24 +181,20 @@ options(mc.cores = parallel::detectCores()-1)
       )  %>%
       st_drop_geometry()  # Remove spatial features to keep as a data frame  
     
-  # Assign sequential plotID for unique Easting-Northing combinations
-    df <- df %>%
-      arrange(Easting_3577, Northing_3577) %>%  
-      mutate(plotID = dense_rank(paste(Easting_3577, Northing_3577, sep = "_"))) %>% 
-      mutate(replicate =  ((Year - 2012) %/% 2) + 1) #Map 2012-2021 to 1-10
-    
   # Exclude plots surveyed only once
     df_filtered <- df %>%
-      group_by(plotID) %>%  # Group by plotID
+      mutate(replicate =  ((Year - 2012) %/% 2) + 1) %>%  #assign two years as one replicate 
+      group_by(Easting_3577, Northing_3577) %>%  # Group by plotID
       filter(n_distinct(replicate) >= 2) %>%  # Keep plots with at least 2 unique replicates
-      ungroup()  # Ungroup for further operations
+      ungroup() %>% 
+      arrange(Easting_3577, Northing_3577) %>%  
+      mutate(plotID = dense_rank(paste(Easting_3577, Northing_3577, sep = "_")))
     
-  # qmplot(Longitude_GDA94, Latitude_GDA94, 
-           # data = df_filtered, 
-           # zoom = 8, maptype = "stamen_terrain", 
-           # darken = c(0.5, "black"), color = Genus)
-  
-    # Convert df into long format 
+    write.csv(df_filtered, "input/df.csv", row.names = FALSE)
+    
+    
+    
+  # Convert df into long format 
     y.long <- df_filtered %>%
       group_by(plotID, replicate, Genus) %>%
       summarize(occ = ifelse(n() > 0, 1, 0)) %>%
@@ -231,6 +202,7 @@ options(mc.cores = parallel::detectCores()-1)
       glimpse()  
     
     
+
 
 # FORMAT DETECTION NON-DETECTION DATA ------------------------------------------
 # Species codes, adjust accordingly
@@ -339,7 +311,7 @@ apply(y, 1, sum, na.rm = TRUE)
   na_effort <- is.na(effort.matrix)
   na_y <- is.na(y[1,,]) #Here I just use the first species, but it should be identical for all species. 
   
-  identical(na_effort, na_y)
+  # identical(na_effort, na_y)
   # Identify positions where the NA structure differs
   diff_positions <- which(na_effort != na_y, arr.ind = TRUE)
   
@@ -351,38 +323,39 @@ apply(y, 1, sum, na.rm = TRUE)
 
   
 # project matrix
+#[note] the model do not allow factor input as detection covariates, input must be numeric
   # Identify the ProjectID for each plotID and replicate
-  project.df <- df_filtered %>%
-    mutate(replicate = ((Year - 2012) %/% 2) + 1) %>%  # Map 2012-2021 to 1-10
-    group_by(plotID, replicate) %>%
-    summarize(ProjectID = first(ProjectID)) %>%  # Use the first ProjectID for each plotID and replicate
-    ungroup() %>%
-    glimpse()
+  # project.df <- df_filtered %>%
+    # mutate(replicate = ((Year - 2012) %/% 2) + 1) %>%  # Map 2012-2021 to 1-10
+    # group_by(plotID, replicate) %>%
+    # summarize(ProjectID = first(ProjectID)) %>%  # Use the first ProjectID for each plotID and replicate
+    # ungroup() %>%
+    # glimpse()
   
   # Convert ProjectID to a factor (if it's not already)
-  project.df <- project.df %>%
-    mutate(ProjectID = as.factor(ProjectID))
+  # project.df <- project.df %>%
+    # mutate(ProjectID = as.factor(ProjectID))
   
   # Initialize project matrix with NAs
-  project.matrix <- matrix(NA, nrow = length(plot.codes), ncol = K, 
-                           dimnames = list(plot.codes, replicate))
+  # project.matrix <- matrix(NA, nrow = length(plot.codes), ncol = K, 
+                           # dimnames = list(plot.codes, replicate))
   
   # Fill the matrix
-  for (j in 1:length(plot.codes)) {
-    for (k in 1:K) {
+  # for (j in 1:length(plot.codes)) {
+    # for (k in 1:K) {
       # Get ProjectID for plot j and replicate k
-      val <- project.df %>%
-        filter(plotID == plot.codes[j], replicate == k) %>%
-        pull(ProjectID)
+      # val <- project.df %>%
+        # filter(plotID == plot.codes[j], replicate == k) %>%
+        # pull(ProjectID)
       
       # Assign ProjectID to the matrix (if it exists)
-      project.matrix[j, k] <- ifelse(length(val) > 0, as.character(val), NA)
-    }
-  }
+      # project.matrix[j, k] <- ifelse(length(val) > 0, as.character(val), NA)
+    # }
+  # }
   
   # Check the structure of the project matrix
-  str(project.matrix)
-  head(project.matrix)
+  # str(project.matrix)
+  # head(project.matrix)
 
 
 
@@ -408,19 +381,12 @@ str(coords)
 
 # Format beta/occurrence covariates --------------------------------------------------
 # Recall the beta covariates and stacked into single raster
-bio = rast("input/CHELSA_bio_2011-2040_gfdl-esm4_ssp126_V.2.1_EPSG3577.tif")
-bio = bio[[c("bio5", "bio12")]] #we will only use bio5 and bio 12 based on pearson correlation analysis in S0
+bio = rast("input/raster/CHELSA_bio_1981-2010_V.2.1_EPSG3577.tif")
+bio = bio[[c("bio5","bio6", "bio12", "bio15")]] #we will only use bio5 and bio 12 based on pearson correlation analysis in S0
 
-roads_density = rast("input/env_roadDensity_EPSG3577.tif")
-pd = rast("input/aus_pd_2010-2020_1km_UNadj_EPSG3577.tif")
-der = rast("input/env_der_EPSG3577.tif")
+terrain = rast("input/env_terrain_EPSG3577.tif")
 
-env_stack <- c(bio,roads_density, pd, der)
-# target_crs = "EPSG:3577"
-# env_stack_3577 = project(env_stack, target_crs)
-# crs(env_stack_3577)
-
-
+env_stack <- c(bio,terrain)
 
 beta <- terra::extract(env_stack, coords)
 
@@ -431,50 +397,62 @@ rows_with_na <- which(rowSums(is.na(beta)) > 0)
 print(rows_with_na) # plot 794 contains NA value
 
 # Format detection covariates ---------------------------------------------
-# Remove rows in all dataset with NA values 
-beta_clean <- beta[-rows_with_na, ]  # Remove rows from occ.covs
-effort_clean <- effort.matrix[-rows_with_na, ]
-project_clean <- project.matrix[-rows_with_na, ]
-y_clean <- y[ , -rows_with_na, ]                # Remove corresponding rows from y
-coords_clean <- coords[-rows_with_na, ]      # Remove corresponding rows from coords
-
-# Pack all things into a list object
-y = y_clean
-str(y)
-
-det.covs = list(effort = effort_clean, project = project_clean)
-str(det.covs)
-
-occ.covs = beta_clean
-str(occ.covs)
-
-coords = coords_clean
-str(coords_clean)
-
-data.sfMsPGOcc <- list(y = y, 
-                  occ.covs = occ.covs, 
-                  det.covs = det.covs, 
-                  coords = coords)
-str(data.sfMsPGOcc)
-
-save(data.sfMsPGOcc, file = "input/list_sfMsPGOcc_2011-2040_gfdl-esm4_ssp126.RData")
+  # Remove rows in all dataset with NA values 
+  beta_clean <- beta[-rows_with_na, ]# Remove rows from occ.covs
+  effort_clean <- effort.matrix[-rows_with_na, ]
+  # project_clean <- project.matrix[-rows_with_na, ]
+  y_clean <- y[ , -rows_with_na, ]                # Remove corresponding rows from y
+  coords_clean <- coords[-rows_with_na, ]      # Remove corresponding rows from coords
+  
+  
+  write.csv(beta_clean, "input/beta.csv", row.names = FALSE)
+  write.csv(effort_clean, "input/effort.csv", row.names = FALSE)
+  write.csv(y_clean, "input/y.csv", row.names = FALSE)
+  write.csv(coords_clean, "input/coords.csv", row.names = FALSE)
+  
+  
+  
+  # Pack all things into a list object
+  y = y_clean
+  str(y)
+  
+  det.covs = list(effort = effort_clean)
+  str(det.covs)
+  
+  occ.covs = beta_clean
+  str(occ.covs)
+  
+  coords = coords_clean
+  str(coords_clean)
+  
+  data.sfMsPGOcc <- list(y = y, 
+                    occ.covs = occ.covs, 
+                    det.covs = det.covs, 
+                    coords = coords)
+  str(data.sfMsPGOcc)
+  
+  save(data.sfMsPGOcc, file = "input/list_sfMsPGOcc_1980-2010.RData")
 
 # Test run
-test.sfMsPGOcc <- spMsPGOcc(occ.formula = ~ scale(bio5) + I(scale(bio5)^2) + scale(bio12) + I(scale(bio12)^2) + # Quadratic for bio12
-                        scale(roadLength) +              # Linear for road density
-                        scale(pd_mean) +        # Linear for population density
-                        scale(der) + I(scale(der)^2),  # Quadratic for depth of regolith, or do we expect expotential relationship?
-                        det.formula = ~ scale(effort), #+ scale(project),
-                        data = data.sfMsPGOcc,
-                        n.batch = 10, 
-                        batch.length = 25, 
-                        cov.model = 'exponential', 
-                        NNGP = TRUE, 
-                        verbose = FALSE) 
+test.sfMsPGOcc <- spMsPGOcc(occ.formula = ~ scale(bio5) + I(scale(bio5)^2) +scale(bio6) + I(scale(bio6)^2) + 
+                              scale(bio12) + I(scale(bio12)^2) + scale(bio15) + I(scale(bio15)^2) +
+                              scale(dem) + I(scale(dem)^2) +
+                              scale(slope) + I(scale(slope)^2) +
+                              scale(aspect) +
+                              scale(tpi) + I(scale(tpi)^2) +
+                              scale(tri) + I(scale(tri)^2) +
+                              scale(rock),
+                            det.formula = ~ scale(effort), 
+                            data = data.sfMsPGOcc,
+                            n.batch = 10, 
+                            batch.length = 25, 
+                            cov.model = 'exponential', 
+                            NNGP = TRUE, 
+                            verbose = FALSE) 
 
 summary(test.sfMsPGOcc, level = 'community')
 
-# Data ready for modil fitting
+# Data ready for model fitting
 
 
 

@@ -38,7 +38,8 @@ aoi_32755 <- ext(-100000, 1225969, 5500000, 7400000)
 raster_3577 = rast(extent = aoi_3577, resolution = 1000, crs = "EPSG:3577")
 raster_32755 = rast(extent = aoi_32755, resolution = 1000, crs = "EPSG:32755")
 
-# mask = rasterize(range, raster, field = 1)  # Field = 1 assigns a value of 1 to the rasterized area
+mask = rast("input/env_mask_EPSG3577.tif")
+
 
 # Save the raster mask (optional)
 # writeRaster(mask, "RStudio/spOccupancy_NSW_20241219/input/mask_1km.tif", overwrite = TRUE)
@@ -50,12 +51,65 @@ raster_32755 = rast(extent = aoi_32755, resolution = 1000, crs = "EPSG:32755")
 ###########################################################################
 # Raster processing -------------------------------------------------------
 # CHELSA bioclimatic data -------------------------------------------------
+# Define models and SSPs
+models <- c("gfdl-esm4", "mpi-esm1-2-hr", "ukesm1-0-ll", "mri-esm2-0", "ipsl-cm6a-lr")
+ssps <- c("ssp126", "ssp370", "ssp585")
+
+# Define directories
+base_input_dir <- "data/beta/CHELSA/climatologies/2011-2040/"
+output_dir <- "input/raster/"
+
+
+# Ensure output directory exists
+if (!dir.exists(output_dir)) {
+  dir.create(output_dir, recursive = TRUE)
+}
+
+# Loop through each model and SSP
+for (model in models) {
+  for (ssp in ssps) {
+    
+    # Construct input directory path
+    input_dir <- file.path(base_input_dir, model, ssp, "bio")
+    
+    # List all raster files in the directory
+    bio_files <- list.files(input_dir, pattern = "\\.tif$", full.names = TRUE)
+    
+    # Proceed only if there are raster files
+    if (length(bio_files) > 0) {
+      
+      # Extract layer names from file names
+      layer_names <- sub(".*CHELSA_([^_]+)_.*", "\\1", basename(bio_files))
+      
+      # Load rasters and stack them
+      bio <- rast(bio_files)
+      
+      # Assign names to layers
+      names(bio) <- layer_names
+      
+      # Reproject the raster using bilinear interpolation
+      bio <- terra::project(bio, raster_3577, method = "bilinear") *mask  # Ensure `raster_3577` is defined
+      
+      # Save the processed raster stack
+      output_file <- file.path(output_dir, paste0("CHELSA_bio_2011-2040_", model, "_", ssp, "_V.2.1_EPSG3577.tif"))
+      writeRaster(bio, output_file, overwrite = TRUE)
+      
+      print(paste("Processed and saved:", output_file))
+      
+    } else {
+      warning(paste("No raster files found for", model, ssp))
+    }
+  }
+}
+
+
+# 1981-2010 CHELSA data
 ## Define the directory containing the CHELSA rasters
-input_dir <- "data/beta/CHELSA/climatologies/2011-2040/GFDL-ESM4/ssp126/bio/"
-output_dir <- "input/"
+input_dir <- "data/beta/CHELSA/climatologies/1981-2010/bio"
+output_dir <- "input/raster"
 
 # List all raster files in the directory
-bio <- list.files(input_dir, pattern = "\\.tif$", full.names = TRUE)
+bio <- list.files(input_dir, pattern = "^CHELSA_bio", full.names = TRUE)
 
 # Extract layer names from file names
 layer_names <- sub(".*CHELSA_([^_]+)_.*", "\\1", basename(bio))
@@ -66,139 +120,131 @@ bio = rast(bio)
 names(bio) <- layer_names
 
 # Reproject the raster using bilinear method
-bio <- terra::project(bio, raster_3577, method = "bilinear")
+bio <- terra::project(bio, raster_3577, method = "bilinear")*mask
 
 # Save the stacked raster to a file
-output_file = file.path(output_dir, "CHELSA_bio_2011-2040_gfdl-esm4_ssp126_V.2.1_EPSG3577.tif")
+output_file = file.path(output_dir, "CHELSA_bio_1981-2010_V.2.1_EPSG3577.tif")
 writeRaster(bio,output_file, overwrite = TRUE)
 
+###########################################################################
+# Static layers -----------------------------------------------------------
+# DIGITAL ELEVATION MODEL
+dem = rast("data/beta/3secSRTM_DEM/DEM_ESRI_GRID_16bit_Integer/dem3s_int/hdr.adf")
+dem = terra::project(dem, raster_3577, method = "bilinear")
+names(dem) = "dem"
 
-# pr ----------------------------------------------------------------------
-## Define the directory containing the CHELSA rasters
-input_dir <- "spatial_data/CHELSA/climatologies/2011-2040/GFDL-ESM4/ssp126/pr/"
-output_dir <- "RStudio/spOccupancy_NSW/data/beta/"
+slope = terrain(dem, "slope", unit = "degrees")
+aspect = terrain(dem, "aspect", unit="degrees")
 
-# List all raster files in the directory
-pr <- list.files(input_dir, pattern = "\\.tif$", full.names = TRUE)
+# Window size determines the scale of landforms identified
+tpi <- terra::focal(dem, w=matrix(1,9,9), 
+                    fun=function(x) x[5] - mean(x, na.rm=TRUE))
+names(tpi) = "tpi"
 
-# Extract layer names using the updated regex
-layer_names <- sub(".*CHELSA_.*_([a-z]+_[0-9]{2}).*", "\\1", basename(pr))
+# Calculate TRI
+tri <- terrain(dem, "TPI")
+names(tri) = "tri"
 
-pr = rast(pr)
-pr = mean(pr)
-# Assign names to the layers in the stack
-names(pr) <- "pr_mean"
+# writeRaster(terrain, 
+            # "input/env_terrain_EPSG3577.tif",
+            # overwrite=TRUE)
 
-# Reproject the raster using bilinear method
-pr <- terra::project(pr, raster, method = "bilinear")
-
-# Save the stacked raster to a file
-output_file = file.path(output_dir, "CHELSA_gfdl-esm4_r1i1p1f1_w5e5_ssp126_pr_mean_2011_2040_norm_EPSG3577.tif")
-writeRaster(pr,output_file, overwrite = TRUE)
-
-
-# tas ---------------------------------------------------------------------
-## Define the directory containing the CHELSA rasters
-input_dir <- "spatial_data/CHELSA/climatologies/2011-2040/GFDL-ESM4/ssp126/tas/"
-output_dir <- "RStudio/spOccupancy_NSW_20241219/input/"
-
-# List all raster files in the directory
-tas <- list.files(input_dir, pattern = "\\.tif$", full.names = TRUE)
-
-# Extract layer names using the updated regex
-layer_names <- sub(".*CHELSA_.*_([a-z]+_[0-9]{2}).*", "\\1", basename(tas))
-
-tas = rast(tas)
-tas = mean(tas)
-# Assign names to the layers in the stack
-names(tas) <- "tas_mean"
-
-# Reproject the raster using bilinear method
-tas <- terra::project(tas, raster, method = "bilinear")
-
-# Save the stacked raster to a file
-output_file = file.path(output_dir, "CHELSA_gfdl-esm4_r1i1p1f1_w5e5_ssp126_tas_mean_2011_2040_EPSG32755.tif")
-writeRaster(tas,output_file, overwrite = TRUE)
+# DEPTH OF REGOLITH ####
+# der = rast("data/beta/Soil and Landscape Grid National Soil Attribute Maps/regolith/data/DER_000_999_EV_N_P_AU_NAT_C_20150601.tif")
+# der <- terra::project(der, raster_3577, method = "bilinear")
+# names(der) = "der"
+# writeRaster(der, filename = "input/env_der_EPSG3577.tif", overwrite = TRUE)
 
 
-# tasmax ------------------------------------------------------------------
-## Define the directory containing the CHELSA rasters
-input_dir <- "spatial_data/CHELSA/climatologies/2011-2040/GFDL-ESM4/ssp126/tasmax/"
-output_dir <- "RStudio/spOccupancy_NSW_20241219/input/"
+# ROCK OUTCROP OCCURRENCE
+rock = rast("data/beta/Soil and Landscape Grid National Soil Attribute Maps/rockoutcrop/data/DES_rockoutcrop_N_P_AU_NAT_C_20190901.tif")
+rock <- terra::project(rock, raster_3577, method = "bilinear")
 
-# List all raster files in the directory
-tasmax <- list.files(input_dir, pattern = "\\.tif$", full.names = TRUE)
+names(rock) = "rock"
 
-# Extract layer names using the updated regex
-layer_names <- sub(".*CHELSA_.*_([a-z]+_[0-9]{2}).*", "\\1", basename(tasmax))
+terrain = c(dem, slope, aspect, tpi, tri, rock)*mask
 
-tasmax = rast(tasmax)
-tasmax = mean(tasmax)
-
-# Assign names to the layers in the stack
-names(tasmax) <- "tasmax_mean"
-
-# Reproject the raster using bilinear method
-tasmax <- terra::project(tasmax, raster, method = "bilinear")
-
-# Save the stacked raster to a file
-output_file = file.path(output_dir, "CHELSA_gfdl-esm4_r1i1p1f1_w5e5_ssp126_tasmax_mean_2011_2040_EPSG32755.tif")
-writeRaster(tasmax,output_file, overwrite = TRUE)
-
-# tasmin ------------------------------------------------------------------
-## Define the directory containing the CHELSA rasters
-input_dir <- "spatial_data/CHELSA/climatologies/2011-2040/GFDL-ESM4/ssp126/tasmin/"
-output_dir <- "RStudio/spOccupancy_NSW_20241219/input/"
-
-# List all raster files in the directory
-tasmin <- list.files(input_dir, pattern = "\\.tif$", full.names = TRUE)
-
-tasmin = rast(tasmin)
-tasmin = mean(tasmin)
-
-# Assign names to the layers in the stack
-names(tasmin) <- "tasmin_mean"
-
-# Reproject the raster using bilinear method
-tasmin <- terra::project(tasmin, raster, method = "bilinear")
-
-# Save the stacked raster to a file
-output_file = file.path(output_dir, "CHELSA_gfdl-esm4_r1i1p1f1_w5e5_ssp126_tasmin_mean_2011_2040_EPSG32755.tif")
-writeRaster(tasmin,output_file, overwrite = TRUE)
+writeRaster(terrain, filename = "input/env_terrain_EPSG3577.tif", overwrite = TRUE)
 
 
 
-# Ensure the output directory exists
-# if (!dir.exists(output_dir)) {
-# dir.create(output_dir, recursive = TRUE)
-# }
+# Pearson Correlation Analysis --------------------------------------------
+###########################################################################
+library(ggplot2)
+library(corrplot)
 
-# List all CHELSA raster files with the naming pattern
-# raster_files <- list.files(input_dir, pattern = "CHELSA_swb_\\d{4}_V\\.2\\.1\\.tif$", full.names = TRUE)
+# Bioclimatic variables
+bio = rast("input/raster/1981-2010/CHELSA_bio_1981-2010_V.2.1_EPSG3577.tif")
+corr_bio = layerCor(bio, "pearson", na.rm = TRUE)
 
-# Load the mask (assumed already created)
-# Loop through each raster file
-# for (file in raster_files) {
-# Load the raster
-# bioclim <- rast(file)
+bio = bio[c("bio5", "bio6")]
 
-# Reproject and apply the mask
-# bioclim_processed <- project(bioclim, mask, method = "bilinear") * mask
+# terrain variables
+terrain = rast("input/env_terrain_EPSG3577.tif")
+corr_terrain = layerCor(terrain, "pearson", na.rm = TRUE)
 
-# Create the output file path
-# output_file <- file.path(output_dir, basename(gsub(".tif", "_masked.tif", file)))
+# plot resutls 
+corrplot(corr_terrain$correlation, 
+         method = "circle", 
+         type = "lower", 
+         insig = "blank", 
+         addCoef.col = "black", 
+         number.cex = 0.6)
 
-# Save the processed raster
-# writeRaster(bioclim_processed, output_file, overwrite = TRUE)
+corrplot(corr_bio$correlation, 
+         method = "circle", 
+         type = "lower", 
+         insig = "blank", 
+         addCoef.col = "black", 
+         number.cex = 0.6)
 
-# Print progress message (optional)
-# message("Processed and saved: ", output_file)
-# }
-# Optional: Combine into a single multi-layer raster stack
-# raster_stack <- rast(processed_rasters)
+# Assuming your correlation matrix is stored as a matrix or data.frame
+# For example: correlation_matrix <- layerCor(your_raster, "pearson", na.rm = TRUE)$pearson
 
-# plot(bioclim_processed)
-# 
+# Convert correlation matrix to a dissimilarity matrix (1 - |correlation|)
+# dissimilarity <- as.dist(1 - abs(correlation_matrix$correlation))
+
+# Perform hierarchical clustering
+# hc <- hclust(dissimilarity, method = "average")  # "average" or "complete" linkage works well
+
+# Cut the dendrogram to group variables with |r| > 0.7
+# groups <- cutree(hc, h = 0.3)  # h = 1 - 0.7 = 0.3 threshold
+
+# View the groups
+# correlation_groups <- split(names(groups), groups)
+# print(correlation_groups)
+
+# corrplot(correlation_matrix$correlation, method = "square", order = "hclust", hclust.method = "average", 
+         # addrect = length(correlation_groups), tl.cex = 0.7)
+
+env_stack = c(subset(bio, c("bio5", "bio6", "bio12", "bio15")), terrain)
+correlation_matrix <- layerCor(env_stack, "pearson", na.rm = TRUE)
+corrplot(correlation_matrix$correlation, method = "circle", type = "lower", insig = "blank", addCoef.col = "black", number.cex = 0.6)
+
+
+
+# Add all your raster layers here
+
+# Repeat this for all your raster layers
+###########################################################################
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ###########################################################################
 # FOREST COVER##########################################################################
 #In this section we create the forest cover layer. Because there is obvious pixel bandings and quality issue for 2005, 2010 and 2015 layer,
@@ -258,15 +304,9 @@ names(foliage_1km) = "foliageCover"
 plot(foliage_1km)
 
 writeRaster(x = foliage_1km, filename = "data/env_foliage_1km.tif", overwrite = TRUE)
-###########################################################################
-# DEPTH OF REGOLITH ####
-der = rast("data/beta/Soil and Landscape Grid National Soil Attribute Maps/data/DER_000_999_EV_N_P_AU_NAT_C_20150601.tif")
-der <- terra::project(der, raster_3577, method = "bilinear")
 
-names(der) = "der"
-
-writeRaster(der, filename = "input/env_der_EPSG3577.tif", overwrite = TRUE)
 ###########################################################################
+# Disturbance Layers ------------------------------------------------------
 # ROAD DENSITY####
 #Road Density
 roads <- vect("data/beta/road/2024_12_NationalRoads/NationalRoads2024_12.shp") 
@@ -339,7 +379,6 @@ cat("Processing complete!")
 # DATA READY FOR ANALYSIS
 
 
-# Human disturbance index -------------------------------------------------
 ## Define the directory containing the CHELSA rasters
 ## Define the directory containing the CHELSA rasters
 input_dir <- "data/beta/pd/2010-2020/"
@@ -369,60 +408,30 @@ writeRaster(pd_smooth,output_file, overwrite = TRUE)
 
 
 
-# disturbance = roads_density*pd_smooth
+input_dir <- "data/beta/pd/2000-2009/"
+output_dir <- "input/raster"
 
-# Pearson Correlation Analysis --------------------------------------------
+# List all raster files in the directory
+pd <- list.files(input_dir, pattern = "\\.tif$", full.names = TRUE)
 
-
-###########################################################################
-bio = rast("RStudio/spOccupancy_NSW_20241219/input/CHELSA_bio_2011-2040_gfdl-esm4_ssp126_V.2.1_EPSG32755.tif")
-bio = bio[[1:19]]
-pr_mean = rast("RStudio/spOccupancy_NSW_20241219/input/CHELSA_gfdl-esm4_r1i1p1f1_w5e5_ssp126_pr_mean_2011_2040_norm_EPSG32755.tif")
-tas_mean = rast("RStudio/spOccupancy_NSW_20241219/input/CHELSA_gfdl-esm4_r1i1p1f1_w5e5_ssp126_tas_mean_2011_2040_EPSG32755.tif")
-tasmax_mean = rast("RStudio/spOccupancy_NSW_20241219/input/CHELSA_gfdl-esm4_r1i1p1f1_w5e5_ssp126_tasmax_mean_2011_2040_EPSG32755.tif")
-tasmin_mean = rast("RStudio/spOccupancy_NSW_20241219/input/CHELSA_gfdl-esm4_r1i1p1f1_w5e5_ssp126_tasmin_mean_2011_2040_EPSG32755.tif")
-roads_density = rast("RStudio/spOccupancy_NSW_20241219/input/env_roadDensity_EPSG32755.tif")
-pd = rast("RStudio/spOccupancy_NSW_20241219/input/aus_pd_2010-2020_1km_UNadj_EPSG32755.tif")
-der = rast("RStudio/spOccupancy_NSW_20241219/input/env_der_EPSG32755.tif")
+pd = rast(pd)
+pd = mean(pd)
 
 
-env_stack <- c(bio, pr_mean, tas_mean, tasmax_mean, tasmin_mean, roads_density, pd, der)
-correlation_matrix <- layerCor(env_stack, "pearson", na.rm = TRUE)
+# Reproject the raster using bilinear method
+pd <- terra::project(pd, raster_3577, method = "bilinear")
 
-write.csv(correlation_matrix, file = "RStudio/spOccupancy_NSW_20241219/output/correlation_matrix.csv", row.names = TRUE)
-
-###########################################################################
-# install.packages("corrplot")
-library(corrplot)
-
-corrplot(correlation_matrix$correlation, method = "circle", type = "lower", insig = "blank", addCoef.col = "black", number.cex = 0.6)
-# Assuming your correlation matrix is stored as a matrix or data.frame
-# For example: correlation_matrix <- layerCor(your_raster, "pearson", na.rm = TRUE)$pearson
-
-# Convert correlation matrix to a dissimilarity matrix (1 - |correlation|)
-dissimilarity <- as.dist(1 - abs(correlation_matrix$correlation))
-
-# Perform hierarchical clustering
-hc <- hclust(dissimilarity, method = "average")  # "average" or "complete" linkage works well
-
-# Cut the dendrogram to group variables with |r| > 0.7
-groups <- cutree(hc, h = 0.3)  # h = 1 - 0.7 = 0.3 threshold
-
-# View the groups
-correlation_groups <- split(names(groups), groups)
-print(correlation_groups)
-
-corrplot(correlation_matrix$correlation, method = "square", order = "hclust", hclust.method = "average", 
-         addrect = length(correlation_groups), tl.cex = 0.7)
+# Calculate the total density of population within a 10 km moving window for each cell
+pd_smooth <- terra::focal(pd, w = 9, fun = sum, na.rm = TRUE)
 
 
-env_stack = env_stack[[c("bio5","bio12", "roadLength", "pd_mean", "der")]]
-correlation_matrix <- layerCor(env_stack, "pearson", na.rm = TRUE)
-corrplot(correlation_matrix$correlation, method = "circle", type = "lower", insig = "blank", addCoef.col = "black", number.cex = 0.6)
+# Assign names to the layers in the stack
+names(pd_smooth) <- "pd_mean"
+
+
+# Save the stacked raster to a file
+output_file = file.path(output_dir, "aus_pd_1980-2000_1km_UNadj_EPSG3577.tif")
+writeRaster(pd_smooth,output_file, overwrite = TRUE)
 
 
 
-# Add all your raster layers here
-
-# Repeat this for all your raster layers
-###########################################################################
